@@ -9,11 +9,8 @@ mod pow;
 mod reduce;
 mod sub;
 
-use self::invert::ConstMontyFormInverter;
-use super::{
-    MontyParams, Retrieve, SafeGcdInverter, div_by_2::div_by_2, reduction::montgomery_reduction,
-};
-use crate::{ConstChoice, ConstZero, Odd, PrecomputeInverter, Uint};
+use super::{MontyParams, Retrieve, div_by_2::div_by_2, reduction::montgomery_reduction};
+use crate::{ConstChoice, ConstZero, Uint};
 use core::{fmt::Debug, marker::PhantomData};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
@@ -44,16 +41,6 @@ pub trait ConstMontyParams<const LIMBS: usize>:
 
     /// Montgomery parameters constant.
     const PARAMS: MontyParams<LIMBS>;
-
-    /// Precompute a Bernstein-Yang inverter for this modulus.
-    ///
-    /// Use [`ConstMontyFormInverter::new`] if you need `const fn` access.
-    fn precompute_inverter<const UNSAT_LIMBS: usize>() -> ConstMontyFormInverter<Self, LIMBS>
-    where
-        Odd<Uint<LIMBS>>: PrecomputeInverter<Inverter = SafeGcdInverter<LIMBS, UNSAT_LIMBS>, Output = Uint<LIMBS>>,
-    {
-        ConstMontyFormInverter::new()
-    }
 }
 
 /// An integer in Montgomery form modulo `MOD`, represented using `LIMBS` limbs.
@@ -88,8 +75,11 @@ impl<MOD: ConstMontyParams<LIMBS>, const LIMBS: usize> ConstMontyForm<MOD, LIMBS
     /// Instantiates a new [`ConstMontyForm`] that represents this `integer` mod `MOD`.
     pub const fn new(integer: &Uint<LIMBS>) -> Self {
         let product = integer.widening_mul(&MOD::PARAMS.r2);
-        let montgomery_form =
-            montgomery_reduction::<LIMBS>(&product, &MOD::PARAMS.modulus, MOD::PARAMS.mod_neg_inv);
+        let montgomery_form = montgomery_reduction::<LIMBS>(
+            &product,
+            &MOD::PARAMS.modulus,
+            MOD::PARAMS.mod_neg_inv(),
+        );
 
         Self {
             montgomery_form,
@@ -102,7 +92,7 @@ impl<MOD: ConstMontyParams<LIMBS>, const LIMBS: usize> ConstMontyForm<MOD, LIMBS
         montgomery_reduction::<LIMBS>(
             &(self.montgomery_form, Uint::ZERO),
             &MOD::PARAMS.modulus,
-            MOD::PARAMS.mod_neg_inv,
+            MOD::PARAMS.mod_neg_inv(),
         )
     }
 

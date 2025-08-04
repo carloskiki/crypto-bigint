@@ -33,17 +33,14 @@ mod sub;
 pub(crate) mod boxed_monty_form;
 
 pub use self::{
-    const_monty_form::{ConstMontyForm, ConstMontyParams, invert::ConstMontyFormInverter},
-    monty_form::{MontyForm, MontyParams, invert::MontyFormInverter},
-    reduction::montgomery_reduction,
-    safegcd::SafeGcdInverter,
+    const_monty_form::{ConstMontyForm, ConstMontyParams},
+    monty_form::{MontyForm, MontyParams},
 };
 
+pub(crate) use self::safegcd::SafeGcdInverter;
+
 #[cfg(feature = "alloc")]
-pub use self::{
-    boxed_monty_form::{BoxedMontyForm, BoxedMontyParams},
-    safegcd::boxed::BoxedSafeGcdInverter,
-};
+pub use self::boxed_monty_form::{BoxedMontyForm, BoxedMontyParams};
 
 /// A generalization for numbers kept in optimized representations (e.g. Montgomery)
 /// that can be converted back to the original form.
@@ -58,7 +55,7 @@ pub trait Retrieve {
 #[cfg(test)]
 mod tests {
     use crate::{
-        NonZero, U64, U256, Uint, const_monty_form, const_monty_params,
+        NonZero, U64, U256, Uint, const_monty_params,
         modular::{
             const_monty_form::{ConstMontyForm, ConstMontyParams},
             reduction::montgomery_reduction,
@@ -82,7 +79,7 @@ mod tests {
             U256::from_be_hex("0748d9d99f59ff1105d314967254398f2b6cedcb87925c23c999e990f3f29c6d")
         );
         assert_eq!(
-            Modulus1::PARAMS.mod_neg_inv,
+            Modulus1::PARAMS.mod_neg_inv(),
             U64::from_be_hex("fffffffeffffffff").limbs[0]
         );
     }
@@ -100,7 +97,7 @@ mod tests {
             montgomery_reduction::<{ Modulus2::LIMBS }>(
                 &(Modulus2::PARAMS.one, Uint::ZERO),
                 &Modulus2::PARAMS.modulus,
-                Modulus2::PARAMS.mod_neg_inv
+                Modulus2::PARAMS.mod_neg_inv()
             ),
             Uint::ONE
         );
@@ -113,7 +110,7 @@ mod tests {
             montgomery_reduction::<{ Modulus2::LIMBS }>(
                 &(Modulus2::PARAMS.r2, Uint::ZERO),
                 &Modulus2::PARAMS.modulus,
-                Modulus2::PARAMS.mod_neg_inv
+                Modulus2::PARAMS.mod_neg_inv()
             ),
             Modulus2::PARAMS.one
         );
@@ -127,7 +124,7 @@ mod tests {
             montgomery_reduction::<{ Modulus2::LIMBS }>(
                 &(lo, hi),
                 &Modulus2::PARAMS.modulus,
-                Modulus2::PARAMS.mod_neg_inv
+                Modulus2::PARAMS.mod_neg_inv()
             ),
             Modulus2::PARAMS.one
         );
@@ -143,7 +140,7 @@ mod tests {
             montgomery_reduction::<{ Modulus2::LIMBS }>(
                 &product,
                 &Modulus2::PARAMS.modulus,
-                Modulus2::PARAMS.mod_neg_inv
+                Modulus2::PARAMS.mod_neg_inv()
             ),
             x
         );
@@ -168,7 +165,7 @@ mod tests {
             montgomery_reduction::<{ Modulus2::LIMBS }>(
                 &product,
                 &Modulus2::PARAMS.modulus,
-                Modulus2::PARAMS.mod_neg_inv
+                Modulus2::PARAMS.mod_neg_inv()
             ),
             lo
         );
@@ -182,15 +179,5 @@ mod tests {
 
         // Confirm that when creating a Modular and retrieving the value, that it equals the original
         assert_eq!(x, x_mod.retrieve());
-    }
-
-    #[test]
-    fn test_const_monty_form_macro() {
-        let x =
-            U256::from_be_hex("44acf6b7e36c1342c2c5897204fe09504e1e2efb1a900377dbc4e7a6a133ec56");
-        assert_eq!(
-            ConstMontyForm::<Modulus2, { Modulus2::LIMBS }>::new(&x),
-            const_monty_form!(x, Modulus2)
-        );
     }
 }
