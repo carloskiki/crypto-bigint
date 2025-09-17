@@ -1,6 +1,55 @@
 //! The Binary Extended GCD algorithm.
+use super::gcd::bingcd_step;
 use crate::modular::bingcd::matrix::{DividedPatternMatrix, PatternMatrix};
-use crate::{ConstChoice, Int, NonZeroUint, Odd, OddUint, Uint};
+use crate::{ConstChoice, Int, Limb, NonZeroUint, Odd, OddUint, Uint, Word};
+
+/// Binary XGCD update step.
+///
+/// This is a condensed, constant time execution of the following algorithm:
+/// ```text
+/// if a mod 2 == 1
+///    if a < b
+///        (a, b) ← (b, a)
+///        (f0, g0, f1, g1) ← (f1, g1, f0, g0)
+///    a ← a - b
+///    (f0, g0) ← (f0 - f1, g0 - g1)
+/// if a > 0
+///     a ← a/2
+///     (f1, g1) ← (2f1, 2g1)
+/// ```
+/// where `matrix` represents
+/// ```text
+///  (f0 g0)
+///  (f1 g1).
+/// ```
+///
+/// Note: this algorithm assumes `b` to be an odd integer. The algorithm will likely not yield
+/// the correct result when this is not the case.
+///
+/// Ref: Pornin, Algorithm 2, L8-17, <https://eprint.iacr.org/2020/972.pdf>.
+#[inline(always)]
+const fn binxgcd_step<const LIMBS: usize, const MATRIX_LIMBS: usize, const HALT_AT_ZERO: bool>(
+    a: &mut Uint<LIMBS>,
+    b: &mut Uint<LIMBS>,
+    matrix: &mut DividedPatternMatrix<MATRIX_LIMBS>,
+) -> Word {
+    let (a_odd, swap, j) = bingcd_step(a, b);
+
+    // swap if a odd and a < b
+    matrix.conditional_swap_rows(swap);
+
+    // subtract b from a when a is odd
+    matrix.conditional_subtract_bottom_row_from_top(a_odd);
+
+    // Double the bottom row of the matrix when a was ≠ 0 and when not halting.
+    if HALT_AT_ZERO {
+        matrix.conditional_double_bottom_row(a.is_nonzero());
+    } else {
+        matrix.double_bottom_row();
+    };
+
+    j
+}
 
 /// Container for the raw output of the Binary XGCD algorithm.
 pub(crate) struct RawXgcdOutput<const LIMBS: usize, MATRIX> {
@@ -113,14 +162,14 @@ impl<const LIMBS: usize> OddUint<LIMBS> {
     pub(crate) const fn binxgcd_nz(&self, rhs: &NonZeroUint<LIMBS>) -> PatternXgcdOutput<LIMBS> {
         let (lhs_, rhs_) = (self.as_ref(), rhs.as_ref());
 
-        // The `binxgcd` subroutine requires `rhs` needs to be odd.
+        // The `xgcd` subroutine requires `rhs` to be odd.
         // We leverage the equality gcd(lhs, rhs) = gcd(lhs, |lhs-rhs|) to deal with the case that
         // `rhs` is even.
         let rhs_is_even = rhs_.is_odd().not();
         let (abs_diff, rhs_gt_lhs) = lhs_.abs_diff(rhs_);
         let odd_rhs = Odd(Uint::select(rhs_, &abs_diff, rhs_is_even));
 
-        let mut output = self.classic_binxgcd(&odd_rhs).divide();
+        let mut output = self.binxgcd_odd(&odd_rhs);
         let matrix = &mut output.matrix;
 
         // Modify the output to negate the transformation applied to the input.
@@ -134,6 +183,14 @@ impl<const LIMBS: usize> OddUint<LIMBS> {
         output
     }
 
+    /// Execute the classic Extended GCD algorithm.
+    ///
+    /// Given `(self, rhs)`, computes `(g, x, y)` s.t. `self * x + rhs * y = g = gcd(self, rhs)`.
+    #[inline]
+    pub(crate) const fn binxgcd_odd(&self, rhs: &Self) -> PatternXgcdOutput<LIMBS> {
+        self.classic_binxgcd(rhs).divide()
+    }
+
     /// Execute the classic Binary Extended GCD algorithm.
     ///
     /// Given `(self, rhs)`, computes `(g, x, y)` s.t. `self * x + rhs * y = g = gcd(self, rhs)`.
@@ -141,11 +198,8 @@ impl<const LIMBS: usize> OddUint<LIMBS> {
     /// Ref: Pornin, Optimized Binary GCD for Modular Inversion, Algorithm 1.
     /// <https://eprint.iacr.org/2020/972.pdf>.
     pub(crate) const fn classic_binxgcd(&self, rhs: &Self) -> DividedPatternXgcdOutput<LIMBS> {
-        let (gcd, _, matrix) = self.partial_binxgcd_vartime::<LIMBS>(
-            rhs.as_ref(),
-            Self::MIN_BINXGCD_ITERATIONS,
-            ConstChoice::TRUE,
-        );
+        let (gcd, _, matrix, _) =
+            self.partial_binxgcd::<LIMBS, true>(rhs.as_ref(), Self::MIN_BINXGCD_ITERATIONS);
         DividedPatternXgcdOutput { gcd, matrix }
     }
 
@@ -162,13 +216,12 @@ impl<const LIMBS: usize> OddUint<LIMBS> {
     /// This is done by passing a truthy `halt_at_zero`.
     ///
     /// The function executes in time variable in `iterations`.
-    #[inline]
-    pub(super) const fn partial_binxgcd_vartime<const UPDATE_LIMBS: usize>(
+    #[inline(always)]
+    pub(super) const fn partial_binxgcd<const UPDATE_LIMBS: usize, const HALT_AT_ZERO: bool>(
         &self,
         rhs: &Uint<LIMBS>,
         iterations: u32,
-        halt_at_zero: ConstChoice,
-    ) -> (Self, Uint<LIMBS>, DividedPatternMatrix<UPDATE_LIMBS>) {
+    ) -> (Self, Uint<LIMBS>, DividedPatternMatrix<UPDATE_LIMBS>, Word) {
         let (mut a, mut b) = (*self.as_ref(), *rhs);
         // This matrix corresponds with (f0, g0, f1, g1) in the paper.
         let mut matrix = DividedPatternMatrix::UNIT;
@@ -180,10 +233,13 @@ impl<const LIMBS: usize> OddUint<LIMBS> {
         Uint::swap(&mut a, &mut b);
         matrix.swap_rows();
 
-        let mut j = 0;
-        while j < iterations {
-            Self::binxgcd_step(&mut a, &mut b, &mut matrix, halt_at_zero);
-            j += 1;
+        let mut jacobi_neg = 0;
+        let mut i = 0;
+
+        while i < iterations {
+            jacobi_neg ^=
+                binxgcd_step::<LIMBS, UPDATE_LIMBS, HALT_AT_ZERO>(&mut a, &mut b, &mut matrix);
+            i += 1;
         }
 
         // Undo swap
@@ -191,71 +247,17 @@ impl<const LIMBS: usize> OddUint<LIMBS> {
         matrix.swap_rows();
 
         let a = a.to_odd().expect("a is always odd");
-        (a, b, matrix)
-    }
-
-    /// Binary XGCD update step.
-    ///
-    /// This is a condensed, constant time execution of the following algorithm:
-    /// ```text
-    /// if a mod 2 == 1
-    ///    if a < b
-    ///        (a, b) ← (b, a)
-    ///        (f0, g0, f1, g1) ← (f1, g1, f0, g0)
-    ///    a ← a - b
-    ///    (f0, g0) ← (f0 - f1, g0 - g1)
-    /// if a > 0
-    ///     a ← a/2
-    ///     (f1, g1) ← (2f1, 2g1)
-    /// ```
-    /// where `matrix` represents
-    /// ```text
-    ///  (f0 g0)
-    ///  (f1 g1).
-    /// ```
-    ///
-    /// Note: this algorithm assumes `b` to be an odd integer. The algorithm will likely not yield
-    /// the correct result when this is not the case.
-    ///
-    /// Ref: Pornin, Algorithm 2, L8-17, <https://eprint.iacr.org/2020/972.pdf>.
-    #[inline]
-    const fn binxgcd_step<const MATRIX_LIMBS: usize>(
-        a: &mut Uint<LIMBS>,
-        b: &mut Uint<LIMBS>,
-        matrix: &mut DividedPatternMatrix<MATRIX_LIMBS>,
-        halt_at_zero: ConstChoice,
-    ) {
-        let a_odd = a.is_odd();
-        let a_lt_b = Uint::lt(a, b);
-
-        // swap if a odd and a < b
-        let swap = a_odd.and(a_lt_b);
-        Uint::conditional_swap(a, b, swap);
-        matrix.conditional_swap_rows(swap);
-
-        // subtract b from a when a is odd
-        *a = a.wrapping_sub(&Uint::select(&Uint::ZERO, b, a_odd));
-        matrix.conditional_subtract_bottom_row_from_top(a_odd);
-
-        // Div a by 2.
-        let double = a.is_nonzero().or(halt_at_zero.not());
-        *a = a.shr1();
-
-        // Double the bottom row of the matrix when a was ≠ 0 and when not halting.
-        matrix.conditional_double_bottom_row(double);
+        (a, b, matrix, jacobi_neg)
     }
 }
 
 impl<const LIMBS: usize> Uint<LIMBS> {
     /// Compute the absolute difference between `self` and `rhs`.
     /// In addition to the result, also returns whether `rhs > self`.
-    const fn abs_diff(&self, rhs_: &Self) -> (Self, ConstChoice) {
-        let rhs_gt_self = Uint::gt(rhs_, self);
-        let abs_diff = Uint::select(
-            &self.wrapping_sub(rhs_),
-            &rhs_.wrapping_sub(self),
-            rhs_gt_self,
-        );
+    const fn abs_diff(&self, rhs: &Self) -> (Self, ConstChoice) {
+        let (diff, borrow) = self.borrowing_sub(rhs, Limb::ZERO);
+        let rhs_gt_self = borrow.is_nonzero();
+        let abs_diff = diff.wrapping_neg_if(rhs_gt_self);
         (abs_diff, rhs_gt_self)
     }
 }
@@ -263,7 +265,7 @@ impl<const LIMBS: usize> Uint<LIMBS> {
 #[cfg(all(test, not(miri)))]
 mod tests {
     use crate::modular::bingcd::xgcd::PatternXgcdOutput;
-    use crate::{ConcatMixed, Uint};
+    use crate::{ConcatMixed, Gcd, Uint};
     use core::ops::Div;
     use num_traits::Zero;
 
@@ -422,8 +424,7 @@ mod tests {
 
         #[test]
         fn test_partial_binxgcd() {
-            let (.., matrix) =
-                A.partial_binxgcd_vartime::<{ U64::LIMBS }>(&B, 5, ConstChoice::TRUE);
+            let (.., matrix, _) = A.partial_binxgcd::<{ U64::LIMBS }, true>(&B, 5);
             assert_eq!(matrix.k, 5);
             assert_eq!(
                 matrix,
@@ -436,8 +437,7 @@ mod tests {
             let target_a = U64::from_be_hex("1CB3FB3FA1218FDB").to_odd().unwrap();
             let target_b = U64::from_be_hex("0EA028AF0F8966B6");
 
-            let (new_a, new_b, matrix) =
-                A.partial_binxgcd_vartime::<{ U64::LIMBS }>(&B, 5, ConstChoice::TRUE);
+            let (new_a, new_b, matrix, _) = A.partial_binxgcd::<{ U64::LIMBS }, true>(&B, 5);
 
             assert_eq!(new_a, target_a);
             assert_eq!(new_b, target_b);
@@ -456,8 +456,7 @@ mod tests {
 
         #[test]
         fn test_partial_binxgcd_halts() {
-            let (gcd, _, matrix) =
-                SMALL_A.partial_binxgcd_vartime::<{ U64::LIMBS }>(&SMALL_B, 60, ConstChoice::TRUE);
+            let (gcd, _, matrix, _) = SMALL_A.partial_binxgcd::<{ U64::LIMBS }, true>(&SMALL_B, 60);
             assert_eq!(matrix.k, 35);
             assert_eq!(matrix.k_upper_bound, 60);
             assert_eq!(gcd.get(), SMALL_A.gcd(&SMALL_B));
@@ -465,8 +464,8 @@ mod tests {
 
         #[test]
         fn test_partial_binxgcd_does_not_halt() {
-            let (gcd, .., matrix) =
-                SMALL_A.partial_binxgcd_vartime::<{ U64::LIMBS }>(&SMALL_B, 60, ConstChoice::FALSE);
+            let (gcd, .., matrix, _) =
+                SMALL_A.partial_binxgcd::<{ U64::LIMBS }, false>(&SMALL_B, 60);
             assert_eq!(matrix.k, 60);
             assert_eq!(matrix.k_upper_bound, 60);
             assert_eq!(gcd.get(), SMALL_A.gcd(&SMALL_B));
@@ -482,7 +481,7 @@ mod tests {
         Uint<LIMBS>: ConcatMixed<Uint<LIMBS>, MixedOutput = Uint<DOUBLE>>,
     {
         // Test the gcd
-        assert_eq!(lhs.bingcd(&rhs), output.gcd, "{lhs} {rhs}");
+        assert_eq!(lhs.gcd(&rhs), output.gcd, "{lhs} {rhs}");
 
         // Test the quotients
         let (lhs_on_gcd, rhs_on_gcd) = output.quotients();

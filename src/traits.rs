@@ -1,14 +1,18 @@
 //! Traits provided by this crate
 
 pub use num_traits::{
-    ConstZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingShl, WrappingShr, WrappingSub,
+    ConstOne, ConstZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingShl, WrappingShr,
+    WrappingSub,
 };
 
 use crate::{Limb, NonZero, Odd, Reciprocal, modular::Retrieve};
-use core::fmt::{self, Debug};
-use core::ops::{
-    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign,
-    Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
+use core::{
+    fmt::{self, Debug},
+    ops::{
+        Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div,
+        DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
+        SubAssign,
+    },
 };
 use subtle::{
     Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, ConstantTimeLess,
@@ -80,7 +84,6 @@ pub trait Integer:
     + for<'a> Add<&'a Self, Output = Self>
     + AddAssign<Self>
     + for<'a> AddAssign<&'a Self>
-    + AddMod<Output = Self>
     + AsRef<[Limb]>
     + BitAnd<Output = Self>
     + for<'a> BitAnd<&'a Self, Output = Self>
@@ -94,7 +97,6 @@ pub trait Integer:
     + for<'a> BitXor<&'a Self, Output = Self>
     + BitXorAssign
     + for<'a> BitXorAssign<&'a Self>
-    + BitOps
     + CheckedAdd
     + CheckedSub
     + CheckedMul
@@ -106,33 +108,23 @@ pub trait Integer:
     + ConstantTimeSelect
     + Debug
     + Default
-    + Div<NonZero<Self>, Output = Self>
-    + for<'a> Div<&'a NonZero<Self>, Output = Self>
     + DivAssign<NonZero<Self>>
     + for<'a> DivAssign<&'a NonZero<Self>>
-    + DivRemLimb
     + Eq
     + fmt::LowerHex
     + fmt::UpperHex
     + fmt::Binary
-    + From<u8>
-    + From<u16>
-    + From<u32>
-    + From<u64>
-    + From<Limb>
     + Mul<Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
     + MulAssign<Self>
     + for<'a> MulAssign<&'a Self>
-    + MulMod<Output = Self>
-    + NegMod<Output = Self>
     + Not<Output = Self>
+    + One
     + Ord
     + Rem<NonZero<Self>, Output = Self>
     + for<'a> Rem<&'a NonZero<Self>, Output = Self>
     + RemAssign<NonZero<Self>>
     + for<'a> RemAssign<&'a NonZero<Self>>
-    + RemLimb
     + Send
     + Sized
     + Shl<u32, Output = Self>
@@ -145,9 +137,7 @@ pub trait Integer:
     + for<'a> Sub<&'a Self, Output = Self>
     + SubAssign<Self>
     + for<'a> SubAssign<&'a Self>
-    + SubMod<Output = Self>
     + Sync
-    + SquareRoot
     + WrappingAdd
     + WrappingSub
     + WrappingMul
@@ -156,21 +146,6 @@ pub trait Integer:
     + WrappingShr
     + Zero
 {
-    /// The corresponding Montgomery representation,
-    /// optimized for the performance of modular operations at the price of a conversion overhead.
-    type Monty: Monty<Integer = Self>;
-
-    /// The value `1`.
-    fn one() -> Self;
-
-    /// The value `1` with the same precision as `other`.
-    fn one_like(other: &Self) -> Self {
-        Self::from_limb_like(Limb::ONE, other)
-    }
-
-    /// Returns an integer with the first limb set to `limb`, and the same precision as `other`.
-    fn from_limb_like(limb: Limb, other: &Self) -> Self;
-
     /// Number of limbs in this integer.
     fn nlimbs(&self) -> usize;
 
@@ -196,7 +171,133 @@ pub trait Integer:
     }
 }
 
-/// Fixed-width integers.
+/// Signed [`Integer`]s.
+pub trait Signed:
+    Div<NonZero<Self>, Output = CtOption<Self>>
+    + for<'a> Div<&'a NonZero<Self>, Output = CtOption<Self>>
+    + From<i8>
+    + From<i16>
+    + From<i32>
+    + From<i64>
+    + Integer
+{
+    /// Corresponding unsigned integer type.
+    type Unsigned: Unsigned;
+
+    /// The sign and magnitude of this [`Signed`].
+    fn abs_sign(&self) -> (Self::Unsigned, Choice);
+
+    /// The magnitude of this [`Signed`].
+    fn abs(&self) -> Self::Unsigned {
+        self.abs_sign().0
+    }
+
+    /// Whether this [`Signed`] is negative (and non-zero), as a [`Choice`].
+    fn is_negative(&self) -> Choice;
+
+    /// Whether this [`Signed`] is positive (and non-zero), as a [`Choice`].
+    fn is_positive(&self) -> Choice;
+}
+
+/// Unsigned [`Integer`]s.
+pub trait Unsigned:
+    AddMod<Output = Self>
+    + BitOps
+    + Div<NonZero<Self>, Output = Self>
+    + for<'a> Div<&'a NonZero<Self>, Output = Self>
+    + DivRemLimb
+    + From<u8>
+    + From<u16>
+    + From<u32>
+    + From<u64>
+    + From<Limb>
+    + Integer
+    + MulMod<Output = Self>
+    + NegMod<Output = Self>
+    + RemLimb
+    + SquareRoot
+    + SquareMod<Output = Self>
+    + SubMod<Output = Self>
+{
+    /// The corresponding Montgomery representation,
+    /// optimized for the performance of modular operations at the price of a conversion overhead.
+    type Monty: Monty<Integer = Self>;
+
+    /// Returns an integer with the first limb set to `limb`, and the same precision as `other`.
+    fn from_limb_like(limb: Limb, other: &Self) -> Self;
+}
+
+/// Zero values: additive identity element for `Self`.
+pub trait Zero: ConstantTimeEq + Sized {
+    /// Returns the additive identity element of `Self`, `0`.
+    fn zero() -> Self;
+
+    /// Determine if this value is equal to `0`.
+    ///
+    /// # Returns
+    ///
+    /// If zero, returns `Choice(1)`. Otherwise, returns `Choice(0)`.
+    #[inline]
+    fn is_zero(&self) -> Choice {
+        self.ct_eq(&Self::zero())
+    }
+
+    /// Set `self` to its additive identity, i.e. `Self::zero`.
+    #[inline]
+    fn set_zero(&mut self) {
+        *self = Zero::zero();
+    }
+
+    /// Return the value `0` with the same precision as `other`.
+    fn zero_like(other: &Self) -> Self
+    where
+        Self: Clone,
+    {
+        let mut ret = other.clone();
+        ret.set_zero();
+        ret
+    }
+}
+
+/// One values: multiplicative identity element for `Self`.
+pub trait One: ConstantTimeEq + Sized {
+    /// Returns the multiplicative identity element of `Self`, `1`.
+    fn one() -> Self;
+
+    /// Determine if this value is equal to `1`.
+    ///
+    /// # Returns
+    ///
+    /// If one, returns `Choice(1)`. Otherwise, returns `Choice(0)`.
+    #[inline]
+    fn is_one(&self) -> Choice {
+        self.ct_eq(&Self::one())
+    }
+
+    /// Set `self` to its multiplicative identity, i.e. `Self::one`.
+    #[inline]
+    fn set_one(&mut self) {
+        *self = One::one();
+    }
+
+    /// Return the value `0` with the same precision as `other`.
+    fn one_like(other: &Self) -> Self
+    where
+        Self: Clone,
+    {
+        let mut ret = other.clone();
+        ret.set_one();
+        ret
+    }
+}
+
+/// Trait for associating constant values with a type.
+pub trait Constants: ConstZero + ConstOne {
+    /// Maximum value this integer can express.
+    const MAX: Self;
+}
+
+/// Fixed-width [`Integer`]s.
 pub trait FixedInteger: Bounded + ConditionallySelectable + Constants + Copy + Integer {
     /// The number of limbs used on this platform.
     const LIMBS: usize;
@@ -224,54 +325,6 @@ pub trait Xgcd<Rhs = Self>: Sized {
 
     /// Compute the extended greatest common divisor of `self` and `rhs` in variable time.
     fn xgcd_vartime(&self, rhs: &Rhs) -> Self::Output;
-}
-
-/// Zero values.
-pub trait Zero: ConstantTimeEq + Sized {
-    /// The value `0`.
-    fn zero() -> Self;
-
-    /// Determine if this value is equal to zero.
-    ///
-    /// # Returns
-    ///
-    /// If zero, returns `Choice(1)`. Otherwise, returns `Choice(0)`.
-    #[inline]
-    fn is_zero(&self) -> Choice {
-        self.ct_eq(&Self::zero())
-    }
-
-    /// Set `self` to its additive identity, i.e. `Self::zero`.
-    #[inline]
-    fn set_zero(&mut self) {
-        *self = Zero::zero();
-    }
-
-    /// Return the value `0` with the same precision as `other`.
-    fn zero_like(other: &Self) -> Self
-    where
-        Self: Clone,
-    {
-        let mut ret = other.clone();
-        ret.set_zero();
-        ret
-    }
-}
-
-impl<T: ConstZero + ConstantTimeEq> Zero for T {
-    #[inline(always)]
-    fn zero() -> T {
-        Self::ZERO
-    }
-}
-
-/// Trait for associating constant values with a type.
-pub trait Constants: ConstZero {
-    /// The value `1`.
-    const ONE: Self;
-
-    /// Maximum value this integer can express.
-    const MAX: Self;
 }
 
 /// Random number generation support.
@@ -428,44 +481,53 @@ pub trait RandomMod: Sized + Zero {
 }
 
 /// Compute `self + rhs mod p`.
-pub trait AddMod<Rhs = Self> {
+pub trait AddMod<Rhs = Self, Mod = NonZero<Self>> {
     /// Output type.
     type Output;
 
     /// Compute `self + rhs mod p`.
     ///
     /// Assumes `self` and `rhs` are `< p`.
-    fn add_mod(&self, rhs: &Rhs, p: &Self) -> Self::Output;
+    fn add_mod(&self, rhs: &Rhs, p: &Mod) -> Self::Output;
 }
 
 /// Compute `self - rhs mod p`.
-pub trait SubMod<Rhs = Self> {
+pub trait SubMod<Rhs = Self, Mod = NonZero<Self>> {
     /// Output type.
     type Output;
 
     /// Compute `self - rhs mod p`.
     ///
     /// Assumes `self` and `rhs` are `< p`.
-    fn sub_mod(&self, rhs: &Rhs, p: &Self) -> Self::Output;
+    fn sub_mod(&self, rhs: &Rhs, p: &Mod) -> Self::Output;
 }
 
 /// Compute `-self mod p`.
-pub trait NegMod {
+pub trait NegMod<Mod = NonZero<Self>> {
     /// Output type.
     type Output;
 
     /// Compute `-self mod p`.
     #[must_use]
-    fn neg_mod(&self, p: &Self) -> Self::Output;
+    fn neg_mod(&self, p: &Mod) -> Self::Output;
 }
 
 /// Compute `self * rhs mod p`.
-pub trait MulMod<Rhs = Self> {
+pub trait MulMod<Rhs = Self, Mod = NonZero<Self>> {
     /// Output type.
     type Output;
 
     /// Compute `self * rhs mod p`.
-    fn mul_mod(&self, rhs: &Rhs, p: &Self) -> Self::Output;
+    fn mul_mod(&self, rhs: &Rhs, p: &Mod) -> Self::Output;
+}
+
+/// Compute `self * self mod p`.
+pub trait SquareMod<Mod = NonZero<Self>> {
+    /// Output type.
+    type Output;
+
+    /// Compute `self * self mod p`.
+    fn square_mod(&self, p: &Mod) -> Self::Output;
 }
 
 /// Compute `1 / self mod p`.
@@ -491,12 +553,12 @@ where
 }
 
 /// Compute `1 / self mod p`.
-pub trait InvertMod<Rhs = Self>: Sized {
+pub trait InvertMod<Mod = NonZero<Self>>: Sized {
     /// Output type.
     type Output;
 
     /// Compute `1 / self mod p`.
-    fn invert_mod(&self, p: &Rhs) -> CtOption<Self::Output>;
+    fn invert_mod(&self, p: &Mod) -> CtOption<Self::Output>;
 }
 
 /// Checked addition.
@@ -941,7 +1003,7 @@ pub trait Monty:
     + SquareAssign
 {
     /// The original integer type.
-    type Integer: Integer<Monty = Self>;
+    type Integer: Unsigned<Monty = Self>;
 
     /// Prepared Montgomery multiplier for tight loops.
     type Multiplier<'a>: Debug + Clone + MontyMultiplier<'a, Monty = Self>;

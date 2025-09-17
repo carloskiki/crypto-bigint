@@ -97,10 +97,10 @@
 //! [`Rem`] trait when used with a [`NonZero`] operand.
 //!
 //! ```
-//! use crypto_bigint::{AddMod, U256};
+//! use crypto_bigint::{AddMod, NonZero, U256};
 //!
 //! // mod 3
-//! let modulus = U256::from(3u8);
+//! let modulus = NonZero::new(U256::from(3u8)).expect("non-zero");
 //!
 //! // 1 + 1 mod 3 = 2
 //! let a = U256::ONE.add_mod(&U256::ONE, &modulus);
@@ -186,8 +186,8 @@ pub use crate::uint::boxed::BoxedUint;
 pub use crate::{
     checked::Checked,
     const_choice::{ConstChoice, ConstCtOption},
-    int::types::*,
-    int::*,
+    int::{types::*, *},
+    jacobi::JacobiSymbol,
     limb::{Limb, WideWord, Word},
     non_zero::*,
     odd::*,
@@ -206,6 +206,7 @@ mod array;
 mod checked;
 mod const_choice;
 mod int;
+mod jacobi;
 mod limb;
 mod non_zero;
 mod odd;

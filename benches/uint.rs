@@ -427,6 +427,32 @@ fn gcd_bench<const LIMBS: usize>(g: &mut BenchmarkGroup<WallTime>, _x: Uint<LIMB
             BatchSize::SmallInput,
         )
     });
+
+    g.bench_function(BenchmarkId::new("safegcd", LIMBS), |b| {
+        b.iter_batched(
+            || {
+                (
+                    OddUint::<LIMBS>::random(&mut rng),
+                    Uint::<LIMBS>::random(&mut rng),
+                )
+            },
+            |(f, g)| black_box(f.safegcd(&g)),
+            BatchSize::SmallInput,
+        )
+    });
+
+    g.bench_function(BenchmarkId::new("safegcd_vartime", LIMBS), |b| {
+        b.iter_batched(
+            || {
+                (
+                    OddUint::<LIMBS>::random(&mut rng),
+                    Uint::<LIMBS>::random(&mut rng),
+                )
+            },
+            |(f, g)| black_box(f.safegcd_vartime(&g)),
+            BatchSize::SmallInput,
+        )
+    });
 }
 
 fn bench_gcd(c: &mut Criterion) {
@@ -434,17 +460,50 @@ fn bench_gcd(c: &mut Criterion) {
 
     gcd_bench(&mut group, Uint::<1>::ZERO);
     gcd_bench(&mut group, Uint::<2>::ZERO);
-    gcd_bench(&mut group, Uint::<3>::ZERO);
     gcd_bench(&mut group, Uint::<4>::ZERO);
-    gcd_bench(&mut group, Uint::<5>::ZERO);
-    gcd_bench(&mut group, Uint::<6>::ZERO);
-    gcd_bench(&mut group, Uint::<7>::ZERO);
     gcd_bench(&mut group, Uint::<8>::ZERO);
-    gcd_bench(&mut group, Uint::<16>::ZERO);
-    gcd_bench(&mut group, Uint::<32>::ZERO);
     gcd_bench(&mut group, Uint::<64>::ZERO);
-    gcd_bench(&mut group, Uint::<128>::ZERO);
     gcd_bench(&mut group, Uint::<256>::ZERO);
+
+    group.finish();
+}
+
+fn mod_symbols_bench<const LIMBS: usize>(g: &mut BenchmarkGroup<WallTime>, _x: Uint<LIMBS>) {
+    let mut rng = make_rng();
+
+    g.bench_function(BenchmarkId::new("jacobi_symbol", LIMBS), |b| {
+        b.iter_batched(
+            || {
+                (
+                    OddUint::<LIMBS>::random(&mut rng),
+                    Uint::<LIMBS>::random(&mut rng),
+                )
+            },
+            |(f, g)| black_box(g.jacobi_symbol(&f)),
+            BatchSize::SmallInput,
+        )
+    });
+
+    g.bench_function(BenchmarkId::new("jacobi_symbol_vartime", LIMBS), |b| {
+        b.iter_batched(
+            || {
+                (
+                    OddUint::<LIMBS>::random(&mut rng),
+                    Uint::<LIMBS>::random(&mut rng),
+                )
+            },
+            |(f, g)| black_box(g.jacobi_symbol_vartime(&f)),
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn bench_mod_symbols(c: &mut Criterion) {
+    let mut group = c.benchmark_group("modular symbols");
+
+    mod_symbols_bench(&mut group, Uint::<1>::ZERO);
+    mod_symbols_bench(&mut group, Uint::<4>::ZERO);
+    mod_symbols_bench(&mut group, Uint::<64>::ZERO);
 
     group.finish();
 }
@@ -453,17 +512,13 @@ fn bench_shl(c: &mut Criterion) {
     let mut group = c.benchmark_group("left shift");
 
     group.bench_function("shl_vartime, small, U2048", |b| {
-        b.iter_batched(
-            || U2048::ONE,
-            |x| x.overflowing_shl_vartime(10),
-            BatchSize::SmallInput,
-        )
+        b.iter_batched(|| U2048::ONE, |x| x.shl_vartime(10), BatchSize::SmallInput)
     });
 
     group.bench_function("shl_vartime, large, U2048", |b| {
         b.iter_batched(
             || U2048::ONE,
-            |x| black_box(x.overflowing_shl_vartime(1024 + 10)),
+            |x| x.shl_vartime(1024 + 10),
             BatchSize::SmallInput,
         )
     });
@@ -477,11 +532,7 @@ fn bench_shl(c: &mut Criterion) {
     });
 
     group.bench_function("shl, U2048", |b| {
-        b.iter_batched(
-            || U2048::ONE,
-            |x| x.overflowing_shl(1024 + 10),
-            BatchSize::SmallInput,
-        )
+        b.iter_batched(|| U2048::ONE, |x| x.shl(1024 + 10), BatchSize::SmallInput)
     });
 
     group.finish();
@@ -491,17 +542,13 @@ fn bench_shr(c: &mut Criterion) {
     let mut group = c.benchmark_group("right shift");
 
     group.bench_function("shr_vartime, small, U2048", |b| {
-        b.iter_batched(
-            || U2048::ONE,
-            |x| x.overflowing_shr_vartime(10),
-            BatchSize::SmallInput,
-        )
+        b.iter_batched(|| U2048::ONE, |x| x.shr_vartime(10), BatchSize::SmallInput)
     });
 
     group.bench_function("shr_vartime, large, U2048", |b| {
         b.iter_batched(
             || U2048::ONE,
-            |x| x.overflowing_shr_vartime(1024 + 10),
+            |x| x.shr_vartime(1024 + 10),
             BatchSize::SmallInput,
         )
     });
@@ -515,11 +562,7 @@ fn bench_shr(c: &mut Criterion) {
     });
 
     group.bench_function("shr, U2048", |b| {
-        b.iter_batched(
-            || U2048::ONE,
-            |x| x.overflowing_shr(1024 + 10),
-            BatchSize::SmallInput,
-        )
+        b.iter_batched(|| U2048::ONE, |x| x.shr(1024 + 10), BatchSize::SmallInput)
     });
 
     group.finish();
@@ -575,7 +618,7 @@ fn bench_invert_mod(c: &mut Criterion) {
                     }
                 }
             },
-            |(x, m)| black_box(x.invert_mod(&m)),
+            |(x, m)| black_box(x.invert_mod(m.as_nz_ref())),
             BatchSize::SmallInput,
         )
     });
@@ -583,7 +626,7 @@ fn bench_invert_mod(c: &mut Criterion) {
     group.bench_function("invert_mod, U256", |b| {
         b.iter_batched(
             || {
-                let m = U256::random(&mut rng);
+                let m = NonZero::<U256>::random(&mut rng);
                 loop {
                     let x = U256::random(&mut rng);
                     let inv_x = x.invert_mod(&m);
@@ -628,6 +671,7 @@ criterion_group!(
     bench_mul,
     bench_division,
     bench_gcd,
+    bench_mod_symbols,
     bench_shl,
     bench_shr,
     bench_invert_mod,

@@ -28,10 +28,13 @@ mod sub_mod;
 #[cfg(feature = "rand_core")]
 mod rand;
 
-use crate::{Integer, Limb, NonZero, Odd, Resize, UintRef, Word, Zero, modular::BoxedMontyForm};
+use crate::{
+    Integer, Limb, NonZero, Odd, One, Resize, UintRef, Unsigned, Word, Zero,
+    modular::BoxedMontyForm,
+};
 use alloc::{boxed::Box, vec, vec::Vec};
-use core::fmt;
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
+use core::{fmt, ops::IndexMut};
+use subtle::{Choice, ConstantTimeEq, CtOption};
 
 #[cfg(feature = "zeroize")]
 use zeroize::Zeroize;
@@ -175,13 +178,24 @@ impl BoxedUint {
     }
 
     /// Borrow the limbs of this [`BoxedUint`] as a [`UintRef`].
-    pub(crate) fn as_uint_ref(&self) -> &UintRef {
+    #[inline(always)]
+    pub(crate) const fn as_uint_ref(&self) -> &UintRef {
         UintRef::new(&self.limbs)
     }
 
     /// Mutably borrow the limbs of this [`BoxedUint`] as a [`UintRef`].
-    pub(crate) fn as_mut_uint_ref(&mut self) -> &mut UintRef {
+    #[inline(always)]
+    pub(crate) const fn as_mut_uint_ref(&mut self) -> &mut UintRef {
         UintRef::new_mut(&mut self.limbs)
+    }
+
+    /// Mutably borrow a subset the limbs of this [`BoxedUint`] as a [`UintRef`].
+    #[inline(always)]
+    pub(crate) fn as_mut_uint_ref_range<R>(&mut self, range: R) -> &mut UintRef
+    where
+        [Limb]: IndexMut<R, Output = [Limb]>,
+    {
+        UintRef::new_mut(&mut self.limbs[range])
     }
 
     /// Get the number of limbs in this [`BoxedUint`].
@@ -273,15 +287,6 @@ impl BoxedUint {
         }
 
         limbs.into()
-    }
-
-    /// Set the value of `self` to zero in-place if `choice` is truthy.
-    pub(crate) fn conditional_set_zero(&mut self, choice: Choice) {
-        let nlimbs = self.nlimbs();
-        let limbs = self.limbs.as_mut();
-        for i in 0..nlimbs {
-            limbs[i] = Limb::conditional_select(&limbs[i], &Limb::ZERO, choice);
-        }
     }
 
     /// Returns `true` if the integer's bit size is smaller or equal to `bits`.
@@ -399,20 +404,18 @@ impl Default for BoxedUint {
 }
 
 impl Integer for BoxedUint {
-    type Monty = BoxedMontyForm;
-
-    fn one() -> Self {
-        Self::one()
+    fn nlimbs(&self) -> usize {
+        self.nlimbs()
     }
+}
+
+impl Unsigned for BoxedUint {
+    type Monty = BoxedMontyForm;
 
     fn from_limb_like(limb: Limb, other: &Self) -> Self {
         let mut ret = Self::zero_with_precision(other.bits_precision());
         ret.limbs[0] = limb;
         ret
-    }
-
-    fn nlimbs(&self) -> usize {
-        self.nlimbs()
     }
 }
 
@@ -430,6 +433,21 @@ impl Zero for BoxedUint {
     }
 }
 
+impl One for BoxedUint {
+    fn one() -> Self {
+        Self::one()
+    }
+
+    fn is_one(&self) -> Choice {
+        self.is_one()
+    }
+
+    fn set_one(&mut self) {
+        self.limbs.as_mut().fill(Limb::ZERO);
+        self.limbs[0] = Limb::ONE;
+    }
+}
+
 impl num_traits::Zero for BoxedUint {
     fn zero() -> Self {
         Self::zero()
@@ -437,6 +455,10 @@ impl num_traits::Zero for BoxedUint {
 
     fn is_zero(&self) -> bool {
         self.is_zero().into()
+    }
+
+    fn set_zero(&mut self) {
+        Zero::set_zero(self)
     }
 }
 
@@ -447,6 +469,10 @@ impl num_traits::One for BoxedUint {
 
     fn is_one(&self) -> bool {
         self.is_one().into()
+    }
+
+    fn set_one(&mut self) {
+        One::set_one(self)
     }
 }
 

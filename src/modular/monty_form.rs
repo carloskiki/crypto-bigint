@@ -3,6 +3,7 @@
 mod add;
 pub(super) mod invert;
 mod lincomb;
+mod mod_symbol;
 mod mul;
 mod neg;
 mod pow;
@@ -12,7 +13,7 @@ use super::{
     Retrieve,
     const_monty_form::{ConstMontyForm, ConstMontyParams},
     div_by_2::div_by_2,
-    reduction::montgomery_reduction,
+    reduction::{montgomery_reduction, montgomery_retrieve},
     safegcd::invert_mod_u64,
 };
 use crate::{ConstChoice, Limb, Monty, Odd, U64, Uint, Word};
@@ -45,7 +46,7 @@ impl<const LIMBS: usize> MontyParams<LIMBS> {
             .wrapping_add(&Uint::ONE);
 
         // `R^2 mod modulus`, used to convert integers to Montgomery form.
-        let r2 = Uint::rem_wide(one.square_wide(), modulus.as_nz_ref());
+        let r2 = one.square_mod(modulus.as_nz_ref());
 
         // The inverse of the modulus modulo 2**64
         let mod_inv = U64::from_u64(invert_mod_u64(modulus.as_ref().as_words()));
@@ -74,7 +75,7 @@ impl<const LIMBS: usize> MontyParams<LIMBS> {
             .wrapping_add(&Uint::ONE);
 
         // `R^2 mod modulus`, used to convert integers to Montgomery form.
-        let r2 = Uint::rem_wide_vartime(one.square_wide(), modulus.as_nz_ref());
+        let r2 = one.square_mod_vartime(modulus.as_nz_ref());
 
         // The inverse of the modulus modulo 2**64
         let mod_inv = U64::from_u64(invert_mod_u64(modulus.as_ref().as_words()));
@@ -98,6 +99,16 @@ impl<const LIMBS: usize> MontyParams<LIMBS> {
     /// Returns the modulus which was used to initialize these parameters.
     pub const fn modulus(&self) -> &Odd<Uint<LIMBS>> {
         &self.modulus
+    }
+
+    /// 1 in Montgomery form (a.k.a. `R`).
+    pub const fn one(&self) -> &Uint<LIMBS> {
+        &self.one
+    }
+
+    /// `R^2 mod modulus`, used to move into Montgomery form.
+    pub const fn r2(&self) -> &Uint<LIMBS> {
+        &self.r2
     }
 
     /// Returns the modulus which was used to initialize these parameters.
@@ -165,8 +176,8 @@ impl<const LIMBS: usize> MontyForm<LIMBS> {
 
     /// Retrieves the integer currently encoded in this `MontyForm`, guaranteed to be reduced.
     pub const fn retrieve(&self) -> Uint<LIMBS> {
-        montgomery_reduction(
-            &(self.montgomery_form, Uint::ZERO),
+        montgomery_retrieve(
+            &self.montgomery_form,
             &self.params.modulus,
             self.params.mod_neg_inv(),
         )

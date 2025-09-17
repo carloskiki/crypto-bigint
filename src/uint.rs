@@ -16,8 +16,8 @@ pub use extra_sizes::*;
 pub(crate) use ref_type::UintRef;
 
 use crate::{
-    Bounded, ConstChoice, ConstCtOption, ConstZero, Constants, Encoding, FixedInteger, Int,
-    Integer, Limb, NonZero, Odd, Word, modular::MontyForm,
+    Bounded, ConstChoice, ConstCtOption, ConstOne, ConstZero, Constants, Encoding, FixedInteger,
+    Int, Integer, Limb, NonZero, Odd, One, Unsigned, Word, Zero, modular::MontyForm,
 };
 
 #[macro_use]
@@ -38,6 +38,7 @@ pub(crate) mod encoding;
 mod from;
 pub(crate) mod gcd;
 mod invert_mod;
+mod mod_symbol;
 pub(crate) mod mul;
 mod mul_mod;
 mod neg;
@@ -188,11 +189,13 @@ impl<const LIMBS: usize> Uint<LIMBS> {
     }
 
     /// Borrow the limbs of this [`Uint`] as a [`UintRef`].
+    #[inline(always)]
     pub(crate) const fn as_uint_ref(&self) -> &UintRef {
         UintRef::new(&self.limbs)
     }
 
     /// Mutably borrow the limbs of this [`Uint`] as a [`UintRef`].
+    #[inline(always)]
     pub(crate) const fn as_mut_uint_ref(&mut self) -> &mut UintRef {
         UintRef::new_mut(&mut self.limbs)
     }
@@ -283,7 +286,6 @@ impl<const LIMBS: usize> Bounded for Uint<LIMBS> {
 }
 
 impl<const LIMBS: usize> Constants for Uint<LIMBS> {
-    const ONE: Self = Self::ONE;
     const MAX: Self = Self::MAX;
 }
 
@@ -298,18 +300,16 @@ impl<const LIMBS: usize> FixedInteger for Uint<LIMBS> {
 }
 
 impl<const LIMBS: usize> Integer for Uint<LIMBS> {
-    type Monty = MontyForm<LIMBS>;
-
-    fn one() -> Self {
-        Self::ONE
+    fn nlimbs(&self) -> usize {
+        Self::LIMBS
     }
+}
+
+impl<const LIMBS: usize> Unsigned for Uint<LIMBS> {
+    type Monty = MontyForm<LIMBS>;
 
     fn from_limb_like(limb: Limb, _other: &Self) -> Self {
         Self::from(limb)
-    }
-
-    fn nlimbs(&self) -> usize {
-        Self::LIMBS
     }
 }
 
@@ -326,7 +326,26 @@ impl<const LIMBS: usize> ConstZero for Uint<LIMBS> {
     const ZERO: Self = Self::ZERO;
 }
 
+impl<const LIMBS: usize> ConstOne for Uint<LIMBS> {
+    const ONE: Self = Self::ONE;
+}
+
+impl<const LIMBS: usize> Zero for Uint<LIMBS> {
+    #[inline(always)]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+}
+
+impl<const LIMBS: usize> One for Uint<LIMBS> {
+    #[inline(always)]
+    fn one() -> Self {
+        Self::ONE
+    }
+}
+
 impl<const LIMBS: usize> num_traits::Zero for Uint<LIMBS> {
+    #[inline(always)]
     fn zero() -> Self {
         Self::ZERO
     }
@@ -337,6 +356,7 @@ impl<const LIMBS: usize> num_traits::Zero for Uint<LIMBS> {
 }
 
 impl<const LIMBS: usize> num_traits::One for Uint<LIMBS> {
+    #[inline(always)]
     fn one() -> Self {
         Self::ONE
     }

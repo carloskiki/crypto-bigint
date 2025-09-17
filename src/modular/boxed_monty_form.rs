@@ -13,7 +13,7 @@ use mul::BoxedMontyMultiplier;
 
 use crate::{
     BoxedUint, Limb, Monty, Odd, U64, Word,
-    modular::{MontyParams, safegcd::invert_mod_u64},
+    modular::{MontyParams, reduction::montgomery_retrieve_inner, safegcd::invert_mod_u64},
 };
 use alloc::sync::Arc;
 use subtle::Choice;
@@ -55,7 +55,7 @@ impl BoxedMontyParams {
             .wrapping_add(&BoxedUint::one());
 
         // `R^2 mod modulus`, used to convert integers to Montgomery form.
-        let r2 = one.square().rem(modulus.as_nz_ref());
+        let r2 = one.square_mod(modulus.as_nz_ref());
 
         // The inverse of the modulus modulo 2**64
         let mod_inv = U64::from_u64(invert_mod_u64(modulus.as_ref().as_words()));
@@ -88,7 +88,7 @@ impl BoxedMontyParams {
             .wrapping_add(&BoxedUint::one());
 
         // `R^2 mod modulus`, used to convert integers to Montgomery form.
-        let r2 = one.square().rem_vartime(modulus.as_nz_ref());
+        let r2 = one.square_mod_vartime(modulus.as_nz_ref());
 
         // The inverse of the modulus modulo 2**64
         let mod_inv = U64::from_u64(invert_mod_u64(modulus.as_ref().as_words()));
@@ -189,8 +189,14 @@ impl BoxedMontyForm {
 
     /// Retrieves the integer currently encoded in this [`BoxedMontyForm`], guaranteed to be reduced.
     pub fn retrieve(&self) -> BoxedUint {
-        let mut mm = BoxedMontyMultiplier::from(&self.params);
-        mm.mul_by_one(&self.montgomery_form)
+        let mut out = BoxedUint::zero_with_precision(self.bits_precision());
+        montgomery_retrieve_inner(
+            &self.montgomery_form.limbs,
+            &mut out.limbs,
+            self.params.modulus().as_ref().as_limbs(),
+            self.params.mod_neg_inv(),
+        );
+        out
     }
 
     /// Instantiates a new `ConstMontyForm` that represents zero.

@@ -1,11 +1,14 @@
 //! Wrapper type for non-zero integers.
 
-use crate::{Bounded, ConstChoice, ConstCtOption, Constants, Encoding, Int, Limb, Odd, Uint, Zero};
+use crate::{
+    Bounded, ConstChoice, ConstCtOption, Constants, Encoding, Int, Limb, Odd, One, Uint, Zero,
+};
 use core::{
     fmt,
     num::{NonZeroU8, NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU128},
-    ops::Deref,
+    ops::{Deref, Mul},
 };
+use num_traits::ConstOne;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 #[cfg(feature = "alloc")]
@@ -96,6 +99,49 @@ where
     }
 }
 
+impl<T> ConstOne for NonZero<T>
+where
+    T: ConstOne + One,
+{
+    const ONE: Self = Self(T::ONE);
+}
+
+impl<T> One for NonZero<T>
+where
+    T: One,
+{
+    #[inline]
+    fn one() -> Self {
+        Self(T::one())
+    }
+}
+
+impl<T> num_traits::One for NonZero<T>
+where
+    T: One + Mul<T, Output = T>,
+{
+    #[inline]
+    fn one() -> Self {
+        Self(T::one())
+    }
+
+    fn is_one(&self) -> bool {
+        self.0.is_one().into()
+    }
+}
+
+/// Any non-zero integer multiplied by another non-zero integer is definitionally non-zero.
+impl<T> Mul<Self> for NonZero<T>
+where
+    T: Mul<T, Output = T>,
+{
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        Self(self.0 * rhs.0)
+    }
+}
+
 impl NonZero<Limb> {
     /// Creates a new non-zero limb in a const context.
     /// Panics if the value is zero.
@@ -139,10 +185,12 @@ impl NonZero<Limb> {
 
 impl<const LIMBS: usize> NonZeroUint<LIMBS> {
     /// Creates a new non-zero integer in a const context.
-    /// Panics if the value is zero.
     ///
     /// In future versions of Rust it should be possible to replace this with
     /// `NonZero::new(…).unwrap()`
+    ///
+    /// # Panics
+    /// - if the value is zero.
     // TODO: Remove when `Self::new` and `CtOption::unwrap` support `const fn`
     pub const fn new_unwrap(n: Uint<LIMBS>) -> Self {
         if n.is_nonzero().is_true_vartime() {
@@ -150,6 +198,22 @@ impl<const LIMBS: usize> NonZeroUint<LIMBS> {
         } else {
             panic!("Invalid value: zero")
         }
+    }
+
+    /// Create a new [`NonZero<Uint>`] from the provided big endian hex string.
+    ///
+    /// # Panics
+    /// - if the hex is zero, malformed, or not zero-padded accordingly for the size.
+    pub const fn from_be_hex(hex: &str) -> Self {
+        Self::new_unwrap(Uint::from_be_hex(hex))
+    }
+
+    /// Create a new [`NonZero<Uint>`] from the provided little endian hex string.
+    ///
+    /// # Panics
+    /// - if the hex is zero, malformed, or not zero-padded accordingly for the size.
+    pub const fn from_le_hex(hex: &str) -> Self {
+        Self::new_unwrap(Uint::from_le_hex(hex))
     }
 
     /// Create a [`NonZeroUint`] from a [`NonZeroU8`] (const-friendly)

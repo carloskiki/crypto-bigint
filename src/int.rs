@@ -1,15 +1,17 @@
 //! Stack-allocated big signed integers.
 
+use crate::{
+    Bounded, ConstChoice, ConstCtOption, Constants, FixedInteger, Integer, Limb, NonZero, Odd, One,
+    Signed, Uint, Word, Zero,
+};
 use core::fmt;
-
-use num_traits::ConstZero;
-#[cfg(feature = "serde")]
-use serdect::serde::{Deserialize, Deserializer, Serialize, Serializer};
+use num_traits::{ConstOne, ConstZero};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 #[cfg(feature = "serde")]
 use crate::Encoding;
-use crate::{Bounded, ConstChoice, ConstCtOption, Constants, Limb, NonZero, Odd, Uint, Word};
+#[cfg(feature = "serde")]
+use serdect::serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod add;
 mod bit_and;
@@ -23,6 +25,7 @@ mod encoding;
 mod from;
 mod gcd;
 mod invert_mod;
+mod mod_symbol;
 mod mul;
 mod mul_uint;
 mod neg;
@@ -225,7 +228,6 @@ impl<const LIMBS: usize> Bounded for Int<LIMBS> {
 }
 
 impl<const LIMBS: usize> Constants for Int<LIMBS> {
-    const ONE: Self = Self::ONE;
     const MAX: Self = Self::MAX;
 }
 
@@ -235,15 +237,57 @@ impl<const LIMBS: usize> Default for Int<LIMBS> {
     }
 }
 
-// TODO: impl FixedInteger
+impl<const LIMBS: usize> FixedInteger for Int<LIMBS> {
+    const LIMBS: usize = LIMBS;
+}
 
-// TODO: impl Integer
+impl<const LIMBS: usize> Integer for Int<LIMBS> {
+    fn nlimbs(&self) -> usize {
+        self.0.nlimbs()
+    }
+}
+
+impl<const LIMBS: usize> Signed for Int<LIMBS> {
+    type Unsigned = Uint<LIMBS>;
+
+    fn abs_sign(&self) -> (Uint<LIMBS>, Choice) {
+        let (abs, sign) = self.abs_sign();
+        (abs, sign.into())
+    }
+
+    fn is_negative(&self) -> Choice {
+        self.is_negative().into()
+    }
+
+    fn is_positive(&self) -> Choice {
+        self.is_positive().into()
+    }
+}
 
 impl<const LIMBS: usize> ConstZero for Int<LIMBS> {
     const ZERO: Self = Self::ZERO;
 }
 
+impl<const LIMBS: usize> ConstOne for Int<LIMBS> {
+    const ONE: Self = Self::ONE;
+}
+
+impl<const LIMBS: usize> Zero for Int<LIMBS> {
+    #[inline(always)]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+}
+
+impl<const LIMBS: usize> One for Int<LIMBS> {
+    #[inline(always)]
+    fn one() -> Self {
+        Self::ONE
+    }
+}
+
 impl<const LIMBS: usize> num_traits::Zero for Int<LIMBS> {
+    #[inline(always)]
     fn zero() -> Self {
         Self::ZERO
     }
@@ -254,6 +298,7 @@ impl<const LIMBS: usize> num_traits::Zero for Int<LIMBS> {
 }
 
 impl<const LIMBS: usize> num_traits::One for Int<LIMBS> {
+    #[inline(always)]
     fn one() -> Self {
         Self::ONE
     }

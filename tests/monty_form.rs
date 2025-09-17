@@ -5,7 +5,7 @@ mod common;
 use common::to_biguint;
 use crypto_bigint::{
     Bounded, Constants, Encoding, Integer, Invert, Monty, NonZero, Odd, U128, U256, U512, U1024,
-    U2048, U4096,
+    U2048, U4096, Unsigned,
     modular::{MontyForm, MontyParams},
 };
 use num_bigint::BigUint;
@@ -46,15 +46,15 @@ prop_compose! {
 // inverted montgomery form and the normal form inverse from the num_modular crate.
 fn random_invertible_uint<T>(
     bytes: T::Repr,
-    monty_params: <<T as Integer>::Monty as Monty>::Params,
+    monty_params: <<T as Unsigned>::Monty as Monty>::Params,
     modulus: T,
-) -> Result<(T, <T as Integer>::Monty, <T as Integer>::Monty, BigUint), TestCaseError>
+) -> Result<(T, <T as Unsigned>::Monty, <T as Unsigned>::Monty, BigUint), TestCaseError>
 where
-    T: Integer + Bounded + Encoding,
-    <T as Integer>::Monty: Invert<Output = CtOption<T::Monty>>,
+    T: Unsigned + Bounded + Encoding,
+    <T as Unsigned>::Monty: Invert<Output = CtOption<T::Monty>>,
 {
     let r = T::from_be_bytes(bytes);
-    let rm = <T as Integer>::Monty::new(r.clone(), monty_params);
+    let rm = <T as Unsigned>::Monty::new(r.clone(), monty_params);
     let rm_inv = rm.invert();
     prop_assume!(bool::from(rm_inv.is_some()), "r={:?} is not invertible", r);
     let num_modular_modulus = BigUint::from_be_bytes(modulus.to_be_bytes().as_ref());
@@ -71,9 +71,9 @@ where
 fn monty_params_from_edge<T>(
     edge_bytes: [u8; 2],
     rng: &mut TestRng,
-) -> <<T as Integer>::Monty as Monty>::Params
+) -> <<T as Unsigned>::Monty as Monty>::Params
 where
-    T: Integer + Constants + Encoding,
+    T: Unsigned + Constants + Encoding,
 {
     let mut bytes = T::MAX.to_be_bytes();
     let len = bytes.as_ref().len();
@@ -89,7 +89,7 @@ where
     bytes.as_mut()[edge].copy_from_slice(&edge_bytes);
     let mut modulus = T::from_be_bytes(bytes);
     modulus.set_bit_vartime(0, true);
-    <T as Integer>::Monty::new_params_vartime(Odd::new(modulus).unwrap())
+    <T as Unsigned>::Monty::new_params_vartime(Odd::new(modulus).unwrap())
 }
 
 prop_compose! {
@@ -98,7 +98,7 @@ prop_compose! {
         monty_params in any::<[u8;2]>().prop_perturb(|edge_bytes, mut rng|{
             monty_params_from_edge::<U128>(edge_bytes, &mut rng)
         })
-    ) -> Result<(U128, <U128 as Integer>::Monty , <U128 as Integer>::Monty, BigUint),TestCaseError> {
+    ) -> Result<(U128, <U128 as Unsigned>::Monty , <U128 as Unsigned>::Monty, BigUint),TestCaseError> {
         random_invertible_uint(bytes, monty_params, monty_params.modulus().get())
     }
 }
@@ -108,7 +108,7 @@ prop_compose! {
         monty_params in any::<[u8;2]>().prop_perturb(|edge_bytes, mut rng|{
             monty_params_from_edge::<U256>(edge_bytes, &mut rng)
         })
-    ) -> Result<(U256, <U256 as Integer>::Monty , <U256 as Integer>::Monty, BigUint),TestCaseError> {
+    ) -> Result<(U256, <U256 as Unsigned>::Monty , <U256 as Unsigned>::Monty, BigUint),TestCaseError> {
         random_invertible_uint(bytes, monty_params, monty_params.modulus().get())
     }
 }
@@ -118,7 +118,7 @@ prop_compose! {
         monty_params in any::<[u8;2]>().prop_perturb(|edge_bytes, mut rng|{
             monty_params_from_edge::<U2048>(edge_bytes, &mut rng)
         })
-    ) -> Result<(U2048, <U2048 as Integer>::Monty , <U2048 as Integer>::Monty, BigUint),TestCaseError> {
+    ) -> Result<(U2048, <U2048 as Unsigned>::Monty , <U2048 as Unsigned>::Monty, BigUint),TestCaseError> {
         random_invertible_uint(bytes, monty_params, monty_params.modulus().get())
     }
 }
@@ -128,7 +128,7 @@ prop_compose! {
         monty_params in any::<[u8;2]>().prop_perturb(|edge_bytes, mut rng|{
             monty_params_from_edge::<U1024>(edge_bytes, &mut rng)
         })
-    ) -> Result<(U1024, <U1024 as Integer>::Monty, <U1024 as Integer>::Monty, BigUint),TestCaseError> {
+    ) -> Result<(U1024, <U1024 as Unsigned>::Monty, <U1024 as Unsigned>::Monty, BigUint),TestCaseError> {
         random_invertible_uint(bytes, monty_params, monty_params.modulus().get())
     }
 }
@@ -158,7 +158,7 @@ proptest! {
             "a*a⁻¹ ≠ 1 (normal form, wide)"
         );
         // …and agrees with normal form inversion
-        let normal_form_inv = r.invert_mod(monty_params.modulus()).unwrap();
+        let normal_form_inv = r.invert_mod(monty_params.modulus().as_nz_ref()).unwrap();
         assert_eq!(
             normal_form_inv,
             r_monty_inv.retrieve(),
@@ -197,7 +197,7 @@ proptest! {
             "a*a⁻¹ ≠ 1 (normal form, wide)"
         );
         // …and agrees with normal form inversion
-        let normal_form_inv = r.invert_mod(monty_params.modulus()).unwrap();
+        let normal_form_inv = r.invert_mod(monty_params.modulus().as_nz_ref()).unwrap();
         assert_eq!(
             normal_form_inv,
             r_monty_inv.retrieve(),
@@ -236,7 +236,7 @@ proptest! {
             "a*a⁻¹ ≠ 1 (normal form, wide)"
         );
         // …and agrees with normal form inversion
-        let normal_form_inv = r.invert_mod(monty_params.modulus()).unwrap();
+        let normal_form_inv = r.invert_mod(monty_params.modulus().as_nz_ref()).unwrap();
         assert_eq!(
             normal_form_inv,
             r_monty_inv.retrieve(),
@@ -275,7 +275,7 @@ proptest! {
             "a*a⁻¹ ≠ 1 (normal form, wide)"
         );
         // …and agrees with normal form inversion
-        let normal_form_inv = r.invert_mod(monty_params.modulus()).unwrap();
+        let normal_form_inv = r.invert_mod(monty_params.modulus().as_nz_ref()).unwrap();
         assert_eq!(
             normal_form_inv,
             r_monty_inv.retrieve(),
@@ -296,6 +296,76 @@ proptest! {
     }
 
     #[test]
+    fn add(x in uint(), y in uint(), n in modulus()) {
+        let x = reduce(&x, n);
+        let y = reduce(&y, n);
+        let actual = x + y;
+
+        let x_bi = retrieve_biguint(&x);
+        let y_bi = retrieve_biguint(&y);
+        let n_bi = to_biguint(n.modulus());
+        let expected = (x_bi + y_bi) % n_bi;
+
+        prop_assert_eq!(retrieve_biguint(&actual), expected);
+    }
+
+    #[test]
+    fn sub(x in uint(), y in uint(), n in modulus()) {
+        let x = reduce(&x, n);
+        let y = reduce(&y, n);
+        let actual = x - y;
+
+        let x_bi = retrieve_biguint(&x);
+        let y_bi = retrieve_biguint(&y);
+        let n_bi = to_biguint(n.modulus());
+        let expected = if x_bi >= y_bi {
+            (x_bi - y_bi) % &n_bi
+        } else {
+            (&n_bi - (y_bi - x_bi)) % &n_bi
+        };
+
+        prop_assert_eq!(retrieve_biguint(&actual), expected);
+    }
+
+    #[test]
+    fn double(x in uint(),  n in modulus()) {
+        let x = reduce(&x, n);
+        let actual = x.double();
+
+        let x_bi = retrieve_biguint(&x);
+        let n_bi = to_biguint(n.modulus());
+        let expected = (x_bi << 1) % n_bi;
+
+        prop_assert_eq!(retrieve_biguint(&actual), expected);
+    }
+
+    #[test]
+    fn mul(x in uint(), y in uint(), n in modulus()) {
+        let x = reduce(&x, n);
+        let y = reduce(&y, n);
+        let actual = x * y;
+
+        let x_bi = retrieve_biguint(&x);
+        let y_bi = retrieve_biguint(&y);
+        let n_bi = to_biguint(n.modulus());
+        let expected = (x_bi * y_bi) % n_bi;
+
+        prop_assert_eq!(retrieve_biguint(&actual), expected);
+    }
+
+    #[test]
+    fn square(x in uint(), n in modulus()) {
+        let x = reduce(&x, n);
+        let actual = x.square();
+
+        let x_bi = retrieve_biguint(&x);
+        let n_bi = to_biguint(n.modulus());
+        let expected = x_bi.sqm(&n_bi);
+
+        prop_assert_eq!(retrieve_biguint(&actual), expected);
+    }
+
+    #[test]
     fn invert(x in uint(), n in modulus()) {
         let x = reduce(&x, n);
         let actual = Option::<MontyForm256>::from(x.invert());
@@ -313,5 +383,35 @@ proptest! {
             (None, None) => (),
             (_, _) => panic!("disagreement on if modular inverse exists")
         }
+    }
+
+    #[test]
+    fn pow(x in uint(), y in uint(), n in modulus()) {
+        let x = reduce(&x, n);
+        let actual = x.pow(&y);
+
+        let x_bi = retrieve_biguint(&x);
+        let y_bi = to_biguint(&y);
+        let n_bi = to_biguint(n.modulus());
+        let expected = x_bi.modpow(&y_bi, &n_bi);
+
+        prop_assert_eq!(retrieve_biguint(&actual), expected);
+    }
+
+    #[test]
+    fn div_by_2(x in uint(), n in modulus()) {
+        let x = reduce(&x, n);
+        let actual = x.div_by_2();
+
+        let x_bi = retrieve_biguint(&x);
+        let n_bi = to_biguint(n.modulus());
+        let expected = if x.retrieve().is_odd().into() {
+            (x_bi + n_bi) >> 1
+        }
+        else {
+            x_bi >> 1
+        };
+
+        prop_assert_eq!(&retrieve_biguint(&actual), &expected);
     }
 }

@@ -1,33 +1,11 @@
 //! [`BoxedUint`] modular multiplication operations.
 
-use crate::{
-    BoxedUint, Limb, MulMod, NonZero, Odd, WideWord, Word,
-    div_limb::mul_rem,
-    modular::{BoxedMontyForm, BoxedMontyParams},
-};
+use crate::{BoxedUint, Limb, MulMod, NonZero, SquareMod, WideWord, Word, div_limb::mul_rem};
 
 impl BoxedUint {
-    /// Computes `self * rhs mod p` for odd `p`.
-    ///
-    /// Panics if `p` is even.
-    // TODO(tarcieri): support for even `p`?
-    pub fn mul_mod(&self, rhs: &BoxedUint, p: &BoxedUint) -> BoxedUint {
-        // NOTE: the overhead of converting to Montgomery form to perform this operation and then
-        // immediately converting out of Montgomery form after just a single operation is likely to
-        // be higher than other possible implementations of this function, such as using a
-        // Barrett reduction instead.
-        //
-        // It's worth potentially exploring other approaches to improve efficiency.
-        match Odd::new(p.clone()).into() {
-            Some(p) => {
-                let params = BoxedMontyParams::new(p);
-                let lhs = BoxedMontyForm::new(self.clone(), params.clone());
-                let rhs = BoxedMontyForm::new(rhs.clone(), params);
-                let ret = lhs * rhs;
-                ret.retrieve()
-            }
-            None => todo!("even moduli are currently unsupported"),
-        }
+    /// Computes `self * rhs mod p` for non-zero `p`.
+    pub fn mul_mod(&self, rhs: &BoxedUint, p: &NonZero<BoxedUint>) -> BoxedUint {
+        self.mul(rhs).rem(p)
     }
 
     /// Computes `self * rhs mod p` for the special modulus
@@ -70,13 +48,31 @@ impl BoxedUint {
 
         lo
     }
+
+    /// Computes `self * self mod p`.
+    pub fn square_mod(&self, p: &NonZero<BoxedUint>) -> Self {
+        self.square().rem(p)
+    }
+
+    /// Computes `self * self mod p` in variable time with respect to `p`.
+    pub fn square_mod_vartime(&self, p: &NonZero<BoxedUint>) -> Self {
+        self.square().rem_vartime(p)
+    }
 }
 
 impl MulMod for BoxedUint {
     type Output = Self;
 
-    fn mul_mod(&self, rhs: &Self, p: &Self) -> Self {
+    fn mul_mod(&self, rhs: &Self, p: &NonZero<Self>) -> Self {
         self.mul_mod(rhs, p)
+    }
+}
+
+impl SquareMod for BoxedUint {
+    type Output = Self;
+
+    fn square_mod(&self, p: &NonZero<Self>) -> Self {
+        self.square_mod(p)
     }
 }
 

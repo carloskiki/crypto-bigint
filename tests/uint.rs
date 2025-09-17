@@ -4,11 +4,12 @@ mod common;
 
 use common::to_biguint;
 use crypto_bigint::{
-    Encoding, Gcd, Integer, Limb, NonZero, Odd, U256, U4096, U8192, Uint, Word,
+    Encoding, Gcd, Limb, NonZero, Odd, U256, U4096, U8192, Uint, Word,
     modular::{MontyForm, MontyParams},
 };
 use num_bigint::BigUint;
 use num_integer::Integer as _;
+use num_modular::ModularSymbols;
 use num_traits::identities::{One, Zero};
 use proptest::prelude::*;
 use std::mem;
@@ -47,6 +48,12 @@ fn to_uint_xlarge(big_uint: BigUint) -> U8192 {
 prop_compose! {
     fn uint()(bytes in any::<[u8; 32]>()) -> U256 {
         U256::from_le_slice(&bytes)
+    }
+}
+prop_compose! {
+    fn odd_uint()(mut bytes in any::<[u8; 32]>()) -> Odd<U256> {
+        bytes[0] |= 1;
+        U256::from_le_slice(&bytes).to_odd().unwrap()
     }
 }
 prop_compose! {
@@ -171,7 +178,7 @@ proptest! {
         let p_bi = to_biguint(&P);
 
         let expected = to_uint((a_bi + b_bi) % p_bi);
-        let actual = a.add_mod(&b, &P);
+        let actual = a.add_mod(&b, P.as_nz_ref());
 
         prop_assert!(expected < P);
         prop_assert!(actual < P);
@@ -193,7 +200,7 @@ proptest! {
         let p_bi = to_biguint(&P);
 
         let expected = to_uint((a_bi - b_bi) % p_bi);
-        let actual = a.sub_mod(&b, &P);
+        let actual = a.sub_mod(&b, P.as_nz_ref());
 
         prop_assert!(expected < P);
         prop_assert!(actual < P);
@@ -360,54 +367,34 @@ proptest! {
 
         let expected = to_uint(f_bi.gcd(&g_bi));
         let actual = f.gcd(&g);
+        let actual_vartime = f.gcd_vartime(&g);
         prop_assert_eq!(expected, actual);
+        prop_assert_eq!(expected, actual_vartime);
     }
 
-    /// Hits `classic_bingcd`
     #[test]
-    fn bingcd(f in uint(), g in uint()) {
-        let f_bi = to_biguint(&f);
-        let g_bi = to_biguint(&g);
-
-        let expected = to_uint(f_bi.gcd(&g_bi));
-        let actual = f.bingcd(&g);
-        prop_assert_eq!(expected, actual);
-    }
-
-    /// Hits `optimized_bingcd`
-    #[test]
-    fn bingcd_large(f in uint_large(), g in uint_large()) {
+    // Hits optimized GCD
+    fn gcd_large(f in uint_large(), g in uint_large()) {
         let f_bi = to_biguint(&f);
         let g_bi = to_biguint(&g);
 
         let expected = to_uint_large(f_bi.gcd(&g_bi));
-        let actual = f.bingcd(&g);
+        let actual = f.gcd(&g);
+        let actual_vartime = f.gcd_vartime(&g);
         prop_assert_eq!(expected, actual);
+        prop_assert_eq!(expected, actual_vartime);
     }
 
     #[test]
-    fn gcd_vartime(mut f in uint(), g in uint()) {
-        if bool::from(f.is_even()) {
-            f += U256::ONE;
-        }
-
-        let f_bi = to_biguint(&f);
-        let g_bi = to_biguint(&g);
-        let expected = to_uint(f_bi.gcd(&g_bi));
-
-        let f = Odd::new(f).unwrap();
-        let actual = f.gcd_vartime(&g);
-        prop_assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn bingcd_vartime(f in uint(), g in uint()) {
+    fn jacobi_symbol(f in odd_uint(), g in uint()) {
         let f_bi = to_biguint(&f);
         let g_bi = to_biguint(&g);
 
-        let expected = to_uint(f_bi.gcd(&g_bi));
-        let actual = f.bingcd_vartime(&g);
+        let expected = g_bi.jacobi(&f_bi);
+        let actual = g.jacobi_symbol(&f) as i8;
+        let actual_vartime = g.jacobi_symbol_vartime(&f) as i8;
         prop_assert_eq!(expected, actual);
+        prop_assert_eq!(expected, actual_vartime);
     }
 
     #[test]
@@ -432,12 +419,15 @@ proptest! {
     }
 
     #[test]
-    fn invert_mod(a in uint(), b in uint()) {
+    fn invert_mod(a in uint(), mut b in uint()) {
+        if b.is_zero() {
+            b = Uint::ONE;
+        }
         let a_bi = to_biguint(&a);
         let b_bi = to_biguint(&b);
 
         let expected_is_some = a_bi.gcd(&b_bi) == BigUint::one();
-        let actual = a.invert_mod(&b);
+        let actual = a.invert_mod(&b.to_nz().unwrap());
         let actual_is_some = bool::from(actual.is_some());
 
         prop_assert_eq!(expected_is_some, actual_is_some);
